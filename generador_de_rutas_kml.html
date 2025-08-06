@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Generador unificado KML – Red Vial CR</title>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.7.5/proj4.js"></script>
+  <style>
+    :root {
+      --font: Arial, system-ui, sans-serif;
+      --clr-bg: #fafafa;
+      --clr-card: #ffffff;
+      --clr-primary: #2c3e50;
+      --clr-accent: #007bff;
+      --br: 6px;
+    }
+
+    body {
+      margin: 0;
+      padding: 1rem;
+      font-family: var(--font);
+      background: var(--clr-bg);
+      color: var(--clr-primary);
+      display: grid;
+      gap: 1.5rem;
+      grid-template-columns: 1fr;
+    }
+
+    h1 { margin: 0; font-size: 1.4rem; }
+
+    .card {
+      background: var(--clr-card);
+      padding: 1rem;
+      border-radius: var(--br);
+      box-shadow: 0 2px 4px rgb(0 0 0 / .05);
+      display: grid;
+      gap: 1rem;
+    }
+
+    label { font-weight: 600; }
+
+    input[type="number"], select {
+      padding: .4rem .6rem;
+      border: 1px solid #ccd;
+      border-radius: var(--br);
+      font-size: 1rem;
+    }
+
+    button {
+      padding: .5rem 1rem;
+      border: none;
+      border-radius: var(--br);
+      background: var(--clr-accent);
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled{opacity:.6;cursor:not-allowed}
+
+    #log {
+      font-family: monospace;
+      white-space: pre-wrap;
+      background: #fff;
+      border: 1px dashed #ccc;
+      border-radius: var(--br);
+      max-height: 260px;
+      overflow-y: auto;
+      padding: 1rem;
+    }
+    a.download-link{color:var(--clr-accent);font-weight:600;text-decoration:none}
+  </style>
+</head>
+<body>
+  <h1>Generador unificado de KML – Rutas nacionales y cantonales</h1>
+
+  <!-- Selector tipo -->
+  <div class="card">
+    <label>
+      <input type="radio" name="tipo" value="nacional" checked>
+      Ruta Nacional (por número)
+    </label>
+    <label>
+      <input type="radio" name="tipo" value="cantonal">
+      Rutas Cantonales (por cantón)
+    </label>
+  </div>
+
+  <!-- Formulario nacional -->
+  <div class="card" id="form-nacional">
+    <label for="route">Número de ruta nacional:</label>
+    <input type="number" id="route" value="319" min="1" />
+    <button id="btn-nacional">Generar KML</button>
+  </div>
+
+  <!-- Formulario cantonal -->
+  <div class="card" id="form-cantonal" style="display:none">
+    <label for="canton">Selecciona un cantón:</label>
+    <select id="canton"></select>
+    <button id="btn-cantonal" disabled>Generar KML</button>
+  </div>
+
+  <!-- Salida -->
+  <div class="card">
+    <a id="download" class="download-link" style="display:none"></a>
+    <pre id="log"></pre>
+  </div>
+
+<script>
+// ---------- utilidades de logging ----------
+const logBox = document.getElementById('log');
+const log = (event, detail={}) => {
+  const entry = { ts: Date.now(), event, ...detail };
+  logBox.textContent += JSON.stringify(entry)+"\n";
+};
+
+// ---------- reproyección ----------
+proj4.defs('EPSG:5367', '+proj=tmerc +lat_0=0 +lon_0=-84 +k=0.9999 +x_0=500000 +y_0=0 +ellps=WGS84 +units=m +no_defs');
+proj4.defs('EPSG:4326', '+proj=longlat +datum=WGS84 +no_defs');
+const reproy = (xy)=>proj4('EPSG:5367','EPSG:4326',xy);
+const collapse = (pts)=>pts.filter((p,i,a)=>i===0||p[0]!==a[i-1][0]||p[1]!==a[i-1][1]);
+
+// ---------- UI toggle ----------
+document.querySelectorAll('input[name="tipo"]').forEach(r=>r.addEventListener('change',e=>{
+  const val=e.target.value;
+  document.getElementById('form-nacional').style.display=val==='nacional'?'grid':'none';
+  document.getElementById('form-cantonal').style.display=val==='cantonal'?'grid':'none';
+  log('uiSwitch',{tipo:val});
+}));
+
+// ---------- carga cantones ----------
+fetch('https://services8.arcgis.com/gEjMfQjIBmRHMGao/arcgis/rest/services/RVC_Version_final/FeatureServer/0/query?'+
+  new URLSearchParams({where:'1=1',outFields:'Canton_1',returnDistinctValues:'true',returnGeometry:'false',f:'json'}))
+.then(r=>r.json())
+.then(j=>{
+  const sel=document.getElementById('canton');
+  [...new Set(j.features.map(f=>f.attributes.Canton_1))].sort().forEach(c=>{
+    const o=document.createElement('option');o.value=o.textContent=c;sel.appendChild(o);
+  });
+  document.getElementById('btn-cantonal').disabled=false;
+  log('loadCantones',{total:sel.length});
+})
+.catch(e=>log('error',{message:e.message}));
+
+// ---------- generador nacional ----------
+const btnNac=document.getElementById('btn-nacional');
+btnNac.addEventListener('click',()=>{
+  const ruta=document.getElementById('route').value;
+  const params=new URLSearchParams({where:`RUTA = ${ruta}`,outFields:'*',returnGeometry:'true',f:'json'});
+  const url=`https://services8.arcgis.com/gEjMfQjIBmRHMGao/arcgis/rest/services/Red_Vial_Nacional_Proyecto/FeatureServer/0/query?${params}`;
+  log('apiCall',{tipo:'nacional',url});
+  fetch(url).then(r=>r.json()).then(data=>processFeatures(data.features,`Ruta_${ruta}`)).catch(e=>log('error',{message:e.message}));
+});
+
+// ---------- generador cantonal ----------
+const btnCant=document.getElementById('btn-cantonal');
+btnCant.addEventListener('click',()=>{
+  const canton=document.getElementById('canton').value;
+  const params=new URLSearchParams({where:`Canton_1='${canton}'`,outFields:'*',returnGeometry:'true',f:'json'});
+  const url=`https://services8.arcgis.com/gEjMfQjIBmRHMGao/arcgis/rest/services/RVC_Version_final/FeatureServer/0/query?${params}`;
+  log('apiCall',{tipo:'cantonal',url});
+  fetch(url).then(r=>r.json()).then(d=>processFeatures(d.features,`Cantón_${canton}`)).catch(e=>log('error',{message:e.message}));
+});
+
+// ---------- procesamiento común ----------
+function processFeatures(feats,label){
+  if(!feats||feats.length===0){log('response',{total:0});return;}
+  log('response',{total:feats.length});
+  const kml=['<?xml version="1.0" encoding="UTF-8"?>','<kml xmlns="http://www.opengis.net/kml/2.2"><Document>'];
+  feats.forEach((f,i)=>{
+    const a=f.attributes||{};
+    const nombre=a.Cod_camino_1||a.RUTA||`Feature_${i}`;
+    log('featureProcess',{i,obj:a.OBJECTID||null,nombre});
+    (f.geometry.paths||[]).forEach((path,pi)=>{
+      log('pathStart',{i,pi,pts:path.length});
+      const pts=collapse(path.map(reproy));
+      log('pathCollapse',{i,pi,pts:pts.length});
+      if(pts.length<2){log('discardedPath',{i,pi});return;}
+      kml.push(`<Placemark><name>${nombre}</name><LineString><tessellate>1</tessellate><coordinates>`+
+        pts.map(([lo,la])=>`${lo.toFixed(6)},${la.toFixed(6)},0`).join(' ')+
+        `</coordinates></LineString></Placemark>`);
+    });
+  });
+  kml.push('</Document></kml>');
+  const blob=new Blob([kml.join('\n')],{type:'application/vnd.google-earth.kml+xml'});
+  document.getElementById('download').href=URL.createObjectURL(blob);
+  document.getElementById('download').download=`${label}.kml`;
+  document.getElementById('download').textContent=`Descargar ${label}.kml`;
+  document.getElementById('download').style.display='inline-block';
+  log('kmlWrite',{bytes:blob.size});
+}
+</script>
+</body>
+</html>
