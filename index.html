@@ -3,384 +3,410 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Generador unificado KML – Red Vial CR</title>
-  <link rel="preconnect" href="https://cdnjs.cloudflare.com" />
+  <title>Generador unificado de KML – red vial CR</title>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com/" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.7.5/proj4.js"></script>
   <style>
-    :root {
-      --font: Arial, system-ui, sans-serif;
-      --clr-bg: #fafafa;
-      --clr-card: #ffffff;
-      --clr-primary: #2c3e50;
-      --clr-accent: #007bff;
-      --br: 6px;
-    }
-
-    body {
-      margin: 0;
-      padding: 1rem;
-      font-family: var(--font);
-      background: var(--clr-bg);
-      color: var(--clr-primary);
-      display: grid;
-      gap: 1.5rem;
-      grid-template-columns: 1fr;
-    }
-
-    h1 { margin: 0; font-size: 1.4rem; }
-
-    .card {
-      background: var(--clr-card);
-      padding: 1rem;
-      border-radius: var(--br);
-      box-shadow: 0 2px 4px rgb(0 0 0 / .05);
-      display: grid;
-      gap: 1rem;
-    }
-
-    label { font-weight: 600; }
-
-    input[type="number"], select {
-      padding: .4rem .6rem;
-      border: 1px solid #ccd;
-      border-radius: var(--br);
-      font-size: 1rem;
-    }
-
-    button {
-      padding: .5rem 1rem;
-      border: none;
-      border-radius: var(--br);
-      background: var(--clr-accent);
-      color: #fff;
-      font-weight: 600;
-      cursor: pointer;
-    }
+    :root{--font:Arial,system-ui,sans-serif;--clr-bg:#fafafa;--clr-card:#fff;--clr-primary:#2c3e50;--clr-accent:#007bff;--br:6px}
+    body{margin:0;padding:1rem;font-family:var(--font);background:var(--clr-bg);color:var(--clr-primary);display:grid;gap:1.5rem;grid-template-columns:1fr}
+    h1{margin:0;font-size:1.4rem}
+    .card{background:var(--clr-card);padding:1rem;border-radius:var(--br);box-shadow:0 2px 4px rgb(0 0 0 / .05);display:grid;gap:1rem}
+    label{font-weight:600}
+    input[type="number"],select{padding:.4rem .6rem;border:1px solid #ccd;border-radius:var(--br);font-size:1rem}
+    button{padding:.5rem 1rem;border:none;border-radius:var(--br);background:var(--clr-accent);color:#fff;font-weight:600;cursor:pointer}
     button:disabled{opacity:.6;cursor:not-allowed}
-
-    #log {
-      font-family: monospace;
-      white-space: pre-wrap;
-      background: #fff;
-      border: 1px dashed #ccc;
-      border-radius: var(--br);
-      max-height: 260px;
-      overflow-y: auto;
-      padding: 1rem;
-    }
+    #log{font-family:monospace;white-space:pre-wrap;background:#fff;border:1px dashed #ccc;border-radius:var(--br);max-height:320px;overflow-y:auto;padding:1rem}
     a.download-link{color:var(--clr-accent);font-weight:600;text-decoration:none}
+    .row{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
+    .pill{display:inline-flex;gap:.5rem;align-items:center}
   </style>
 </head>
 <body>
-  <h1>Generador unificado de KML – Rutas nacionales y cantonales</h1>
+  <h1>Generador unificado de KML – rutas nacionales y cantonales</h1>
 
-  <!-- Selector tipo -->
   <div class="card">
-    <label>
-      <input type="radio" name="tipo" value="nacional" checked>
-      Ruta Nacional (por número)
-    </label>
-    <label>
-      <input type="radio" name="tipo" value="cantonal">
-      Rutas Cantonales (por cantón)
-    </label>
+    <div class="row">
+      <label class="pill"><input type="radio" name="tipo" value="nacional" checked> Ruta nacional (por número)</label>
+      <label class="pill"><input type="radio" name="tipo" value="cantonal"> Rutas cantonales (por cantón)</label>
+      <label class="pill"><input type="checkbox" id="verbose"> Verbose</label>
+    </div>
   </div>
 
-  <!-- Formulario nacional -->
   <div class="card" id="form-nacional">
     <label for="route">Número de ruta nacional:</label>
     <input type="number" id="route" value="319" min="1" />
-    <button id="btn-nacional">Generar KML</button>
+    <div class="row">
+      <button id="btn-nacional">Generar KML</button>
+      <button id="btn-clear">Limpiar log</button>
+    </div>
   </div>
 
-  <!-- Formulario cantonal -->
   <div class="card" id="form-cantonal" style="display:none">
     <label for="canton">Selecciona un cantón:</label>
     <select id="canton"></select>
-    <button id="btn-cantonal" disabled>Generar KML</button>
+    <div class="row">
+      <button id="btn-cantonal" disabled>Generar KML</button>
+      <button id="btn-clear2">Limpiar log</button>
+    </div>
   </div>
 
-  <!-- Salida -->
   <div class="card">
     <a id="download" class="download-link" style="display:none"></a>
     <pre id="log"></pre>
   </div>
 
 <script>
-/**
- * @typedef {[number, number]} XY
- * @typedef {Object} SpatialReference
- * @property {number} wkid
- * @typedef {Object} Geometry
- * @property {XY[][]} paths
- * @property {SpatialReference} [spatialReference]
- * @typedef {Object} AttrNacional
- * @property {number} [RUTA]
- * @property {number|string} [SECCIÓN]
- * @property {number|string} [OBJECTID]
- * @typedef {Object} AttrCantonal
- * @property {string} [Canton_1]
- * @property {string|number} [Cod_camino_1]
- * @property {string|number} [Seccion]
- * @property {string} [Validado]
- * @property {number|string} [OBJECTID]
- * @typedef {Object} Feature
- * @property {Geometry} geometry
- * @property {AttrNacional|AttrCantonal|Object} attributes
- * @typedef {Object} QueryResponse
- * @property {string} objectIdFieldName
- * @property {string} geometryType
- * @property {SpatialReference} spatialReference
- * @property {Feature[]} features
- * @typedef {Object} LogEntry
- * @property {number} ts
- * @property {string} event
- * @property {any} [detail]
- * @typedef {Object} PathItem
- * @property {string} name
- * @property {XY[]} crtm
- * @property {XY[]} wgs
- * @property {XY} start
- * @property {XY} end
- * @property {XY} center
- * @property {number} len
- */
+/** @typedef {{ts:number,seq:number,level:'debug'|'info'|'warn'|'error',event:string,scope?:string,[k:string]:any}} LogEntry */
+/** @typedef {{out:string,keys:string[]|((src:any)=>any),normalize?:boolean,transform?:(v:any,src:any)=>any}} MapField */
 
-const logBox = document.getElementById('log');
-const log = (event, detail = {}) => {
-  /** @type {LogEntry} */
-  const entry = { ts: Date.now(), event, ...detail };
-  logBox.textContent += JSON.stringify(entry) + "\n";
-};
+let __seq=0;
+const logBox=document.getElementById("log");
+const verboseBox=document.getElementById("verbose");
+const now=()=>performance.timeOrigin?performance.timeOrigin+performance.now():Date.now();
 
-proj4.defs('EPSG:5367', '+proj=tmerc +lat_0=0 +lon_0=-84 +k=0.9999 +x_0=500000 +y_0=0 +ellps=WGS84 +units=m +no_defs');
-proj4.defs('EPSG:4326', '+proj=longlat +datum=WGS84 +no_defs');
+/** @param {Partial<LogEntry>} e */
+function writeLog(e){
+  const lvl=e.level||'info';
+  if(lvl==='debug' && !verboseBox.checked) return;
+  const entry=Object.assign({ts:now(),seq:++__seq,level:lvl},e);
+  logBox.textContent+=JSON.stringify(entry)+"\n";
+  logBox.scrollTop=logBox.scrollHeight;
+  if(lvl==='error') console.error(entry); else if(lvl==='warn') console.warn(entry); else if(lvl==='debug') console.debug(entry);
+}
 
-/**
- * @param {XY} xy
- * @returns {XY}
- */
-const toWGS = (xy) => proj4('EPSG:5367', 'EPSG:4326', xy);
-
-/**
- * @param {XY[]} pts
- * @returns {XY[]}
- */
-const collapse = (pts) =>
-  pts.filter((p, i, a) => i === 0 || p[0] !== a[i - 1][0] || p[1] !== a[i - 1][1]);
-
-/**
- * @param {XY[]} pts
- * @returns {number}
- */
-const lengthCRTM = (pts) => {
-  let d = 0;
-  for (let i = 1; i < pts.length; i++) {
-    const dx = pts[i][0] - pts[i - 1][0];
-    const dy = pts[i][1] - pts[i - 1][1];
-    d += Math.hypot(dx, dy);
+/** @param {string} name @param {string} url @param {RequestInit} [opts] */
+async function fetchWithLogs(name,url,opts){
+  const t0=performance.now();
+  writeLog({event:'fetch:start',scope:name,url,method:(opts&&opts.method)||'GET',level:'info'});
+  try{
+    const res=await fetch(url,opts);
+    const ok=res.ok;
+    const ct=res.headers.get('content-type')||'';
+    const raw=ct.includes('application/json')?await res.text():await res.text();
+    const bytes=new TextEncoder().encode(raw).length;
+    const dur=performance.now()-t0;
+    writeLog({event:'fetch:response',scope:name,status:res.status,ok,contentType:ct,bytes,duration_ms:Math.round(dur),level: ok?'info':'warn'});
+    if(!ok) throw new Error(`HTTP ${res.status}`);
+    const data=ct.includes('application/json')?JSON.parse(raw):raw;
+    return data;
+  }catch(err){
+    const dur=performance.now()-t0;
+    writeLog({event:'fetch:error',scope:name,message:err instanceof Error?err.message:String(err),duration_ms:Math.round(dur),level:'error'});
+    throw err;
   }
-  return d;
-};
+}
 
-/**
- * @param {XY[]} pts
- * @returns {XY}
- */
-const centroid = (pts) => {
-  let sx = 0, sy = 0;
-  for (const [x, y] of pts) { sx += x; sy += y; }
-  const n = pts.length || 1;
-  return [sx / n, sy / n];
-};
+window.addEventListener('error',e=>{
+  writeLog({event:'window:error',message:e.message,filename:e.filename,lineno:e.lineno,colno:e.colno,level:'error'});
+});
+window.addEventListener('unhandledrejection',e=>{
+  writeLog({event:'window:unhandledrejection',reason:String(e.reason),level:'error'});
+});
 
-/**
- * @param {XY} a
- * @param {XY} b
- * @returns {number}
- */
-const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+proj4.defs("EPSG:5367","+proj=tmerc +lat_0=0 +lon_0=-84 +k=0.9999 +x_0=500000 +y_0=0 +ellps=WGS84 +units=m +no_defs");
+proj4.defs("EPSG:4326","+proj=longlat +datum=WGS84 +no_defs");
 
-document.querySelectorAll('input[name="tipo"]').forEach((r) =>
-  r.addEventListener('change', (e) => {
-    const val = /** @type {HTMLInputElement} */ (e.target).value;
-    document.getElementById('form-nacional').style.display = val === 'nacional' ? 'grid' : 'none';
-    document.getElementById('form-cantonal').style.display = val === 'cantonal' ? 'grid' : 'none';
-    log('uiSwitch', { tipo: val });
+const toWGS=(xy)=>proj4("EPSG:5367","EPSG:4326",xy);
+const collapse=(pts)=>pts.filter((p,i,a)=>i===0||p[0]!==a[i-1][0]||p[1]!==a[i-1][1]);
+const lengthCRTM=(pts)=>{let d=0;for(let i=1;i<pts.length;i++){const dx=pts[i][0]-pts[i-1][0];const dy=pts[i][1]-pts[i-1][1];d+=Math.hypot(dx,dy)}return d};
+const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+function escapeXml(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;")}
+function styleId(colorABGR,width){return `ln_${colorABGR}_${width}`}
+function buildStyleDefs(ids){const parts=[];ids.forEach((id)=>{const [,color,w]=id.split("_");parts.push(`<Style id="${id}"><LineStyle><color>${color}</color><width>${Number(w)}</width></LineStyle></Style>`)});return parts.join("")}
+function norm(v){const s=String(v??"").trim().replace(/\s+/g," ");return !s||s==="-"?"":s}
+
+function buildDescriptionHTML_RVC(m){
+  const rows=[["Cantón",m.Canton],["Provincia",m.Provincia],["Código",m.Codigo],["Código numérico",m.CodigoNum],["Camino",m.Camino],["Nombre de camino",m.NombreCamino],["Inicio",m.Inicio],["Fin",m.Fin],["LongSIG (m)",m.LongSIG_m],["LongSIG (km)",m.LongSIG_km],["Longitud oficial (km)",m.LongOfi_km],["Validado",m.Validado],["Discrepancia de longitud",m.Discr_long],["Δ longitud (km)",m.Dif_long],["Fuente",m.Fuente_dig],["Resolución final",m.Reso_final],["Observaciones",m.Observac],["Autor",m.Autor]].filter(([,v])=>v!==null&&v!==""&&typeof v!=="undefined");
+  const t=rows.map(([k,v])=>`<tr><th style="text-align:left;padding:2px 6px;">${escapeXml(String(k))}</th><td style="padding:2px 6px;">${escapeXml(String(v))}</td></tr>`).join("");
+  return `<![CDATA[<table>${t}</table>]]>`;
+}
+
+function mapWithSpec(src,spec){
+  const out={};
+  for(const f of spec){
+    let val=null;
+    if(Array.isArray(f.keys)){
+      for(const k of f.keys){const v=src?.[k];if(v!==undefined&&v!==null&&(!(typeof v==='string')||v.trim()!=='')){val=v;break}}
+    }else{val=f.keys(src)}
+    if(f.normalize) val=norm(val);
+    if(typeof f.transform==='function') val=f.transform(val,src);
+    out[f.out]=val??null;
+  }
+  return out;
+}
+
+function mapAttrsRVC(a){
+  const specRVC=/** @type {MapField[]} */([
+    {out:'Codigo',keys:['COD_CAMINO']},
+    {out:'CodigoNum',keys:['Cod_camino_1']},
+    {out:'Camino',keys:['Camino']},
+    {out:'NombreCamino',keys:['NOM_CAMINO'],normalize:true},
+    {out:'Inicio',keys:['INICIO'],normalize:true},
+    {out:'Fin',keys:['FIN'],normalize:true},
+    {out:'Provincia',keys:['Provincia_1']},
+    {out:'Canton',keys:['Canton_1']},
+    {out:'ProvinciaCod',keys:['Cod_Prov','PROVINCIA']},
+    {out:'CantonCod',keys:['Cod_Canton','CANTON']},
+    {out:'DistritoCod',keys:['DISTRITO']},
+    {out:'LongSIG_m',keys:['LongSIG_m']},
+    {out:'LongSIG_km',keys:['LongSIG_km']},
+    {out:'LongOfi_km',keys:['LongOfi_km','LONG_KM']},
+    {out:'Validado',keys:['Validado']},
+    {out:'Discr_long',keys:['Discr_long']},
+    {out:'Dif_long',keys:['Dif_long']},
+    {out:'Reso_final',keys:['Reso_final']},
+    {out:'Fuente_dig',keys:['Fuente_dig']},
+    {out:'Observac',keys:['Observac'],normalize:true},
+    {out:'Autor',keys:['Autor']}
+  ]);
+  const base=mapWithSpec(a,specRVC);
+  let NombreHumano=base.NombreCamino||(base.Inicio&&base.Fin?`${base.Inicio} – ${base.Fin}`:'');
+  if(!NombreHumano) NombreHumano=base.Camino?`Camino ${base.Camino}`:(base.Codigo?`Código ${base.Codigo}`:'Tramo');
+  const Nombre=`${NombreHumano}${base.Codigo?` - ${base.Codigo}`:(base.CodigoNum?` - ${base.CodigoNum}`:(base.Camino?` - ${base.Camino}`:''))}`;
+  return {...base,NombreHumano,Nombre};
+}
+
+function mapAttrsRVN(a){
+  const specRVN=/** @type {MapField[]} */([
+    {out:'Ruta',keys:['RUTA','RUTA_1']},
+    {out:'Seccion',keys:['SECCIÓN','Seccion','SECCIÓN_1','Seccion_1'],normalize:true},
+    {out:'Tramo',keys:['DESCRIPCIO','DESCRIPC_1'],normalize:true},
+    {out:'Jerarquia',keys:['JERARQUÍA','JERARQUIA']},
+    {out:'Red',keys:['RVE_DESC_1']},
+    {out:'Provincia',keys:['PROVINCIA','PROVINCIA_1']},
+    {out:'Canton',keys:['CANTÓN','CANTON','CANTÓN_1','CANTON_1']},
+    {out:'Distrito',keys:['DISTRITO','DISTRITO_1']},
+    {out:'Long_km',keys:['LONGITUD','LONGITUD_1']},
+    {out:'Carriles',keys:['N__CAR','N__CAR_1']},
+    {out:'AnchoSup_m',keys:['ANCHO_SUP','ANCHO_SUP_1']},
+    {out:'DerechoVia_m',keys:['DERECHO_VI','DERECHO_VI_1']},
+    {out:'Vel_kmh',keys:['VEL','VEL_1']},
+    {out:'TPDA',keys:['TPDA','TPDA_1']},
+    {out:'Superficie',keys:['SUPERFIC_2']},
+    {out:'CondSuperficie',keys:['SUPERFIC_3']},
+    {out:'PendienteTxt',keys:['PENDIENT_1']},
+    {out:'Terreno',keys:['TERRENO_1']},
+    {out:'Shape_m',keys:['Shape__Length']}
+  ]);
+  const base=mapWithSpec(a,specRVN);
+  const tramoClean=norm(base.Tramo);
+  const seccionStr=norm(base.Seccion);
+  let Nombre='';
+  if(tramoClean&&seccionStr) Nombre=`${tramoClean} - ${seccionStr}`;
+  else if(tramoClean) Nombre=tramoClean;
+  else if((base.Ruta??'')!==''&&seccionStr) Nombre=`${base.Ruta} - ${seccionStr}`;
+  else if((base.Ruta??'')!=='') Nombre=String(base.Ruta);
+  else if(seccionStr) Nombre=seccionStr;
+  else Nombre='Tramo';
+  return {...base,Tramo:tramoClean,Seccion:seccionStr,Nombre};
+}
+
+function buildDescriptionHTML_RVN(m){
+  const rows=[["Ruta",m.Ruta],["Sección",m.Seccion],["Jerarquía",m.Jerarquia],["Red",m.Red],["Tramo",m.Tramo],["Provincia",m.Provincia],["Cantón",m.Canton],["Distrito",m.Distrito],["Longitud (km)",m.Long_km],["Carriles",m.Carriles],["Ancho de calzada (m)",m.AnchoSup_m],["Derecho de vía (m)",m.DerechoVia_m],["Velocidad (km/h)",m.Vel_kmh],["TPDA",m.TPDA],["Superficie",m.Superficie],["Condición de superficie",m.CondSuperficie],["Pendiente",m.PendienteTxt],["Terreno",m.Terreno]].filter(([,v])=>v!==null&&v!==""&&typeof v!=="undefined");
+  const t=rows.map(([k,v])=>`<tr><th style="text-align:left;padding:2px 6px;">${escapeXml(String(k))}</th><td style="padding:2px 6px;">${escapeXml(String(v))}</td></tr>`).join("");
+  return `<![CDATA[<table>${t}</table>]]>`;
+}
+
+function toExtendedDataFromMap(m){
+  const keys=Object.keys(m).filter((k)=>m[k]!==null&&m[k]!==""&&typeof m[k]!=="undefined"&&k!=="Nombre");
+  const rows=keys.map((k)=>`<Data name="${escapeXml(k)}"><value>${escapeXml(String(m[k]))}</value></Data>`);
+  return rows.length?`<ExtendedData>${rows.join("")}</ExtendedData>`:"";
+}
+
+function colorForJerarquia(jer){
+  const t=String(jer||"").toLowerCase();
+  if(t.includes("primaria")) return "ff0000ff";
+  if(t.includes("secundaria")) return "ff00a5ff";
+  if(t.includes("terciaria")) return "ff00d7ff";
+  return "ff909090";
+}
+
+function widthForSection(carriles,ancho){
+  if(typeof carriles==="number"&&!Number.isNaN(carriles)) return Math.max(2,Math.min(8,carriles*2));
+  const n=Number(ancho);
+  if(!Number.isNaN(n)) return Math.max(2,Math.min(8,Math.round(n/1.5)));
+  return 3;
+}
+
+function colorForValidado(v){
+  const t=String(v||"").trim().toLowerCase();
+  if(t==="si"||t==="sí") return "ff00ff00";
+  if(t==="no") return "ff0000ff";
+  return "ff909090";
+}
+
+document.querySelectorAll('input[name="tipo"]').forEach((r)=>
+  r.addEventListener("change",(e)=>{
+    const val=(e.target&&e.target.value)||"";
+    document.getElementById("form-nacional").style.display=val==="nacional"?"grid":"none";
+    document.getElementById("form-cantonal").style.display=val==="cantonal"?"grid":"none";
+    writeLog({event:"ui:switch",tipo:val,level:"info"});
   })
 );
 
-fetch(
-  'https://services8.arcgis.com/gEjMfQjIBmRHMGao/arcgis/rest/services/RVC_Version_final/FeatureServer/0/query?' +
-    new URLSearchParams({
-      where: '1=1',
-      outFields: 'Canton_1',
-      returnDistinctValues: 'true',
-      returnGeometry: 'false',
-      f: 'json'
-    })
-)
-  .then((r) => r.json())
-  .then(
-    /** @param {QueryResponse} j */ (j) => {
-      const sel = /** @type {HTMLSelectElement} */ (document.getElementById('canton'));
-      [...new Set(j.features.map((f) => (f.attributes || {}).Canton_1))].sort().forEach((c) => {
-        const o = document.createElement('option');
-        o.value = String(c);
-        o.textContent = String(c);
-        sel.appendChild(o);
-      });
-      document.getElementById('btn-cantonal').disabled = false;
-      log('loadCantones', { total: sel.length });
-    }
-  )
-  .catch((e) => log('error', { message: e.message }));
+function clearLog(){logBox.textContent="";writeLog({event:"log:cleared",level:"info"})}
+document.getElementById("btn-clear").addEventListener("click",clearLog);
+document.getElementById("btn-clear2").addEventListener("click",clearLog);
 
-const btnNac = document.getElementById('btn-nacional');
-btnNac.addEventListener('click', () => {
-  const ruta = /** @type {HTMLInputElement} */ (document.getElementById('route')).value;
-  const params = new URLSearchParams({
-    where: `RUTA = ${ruta}`,
-    outFields: '*',
-    returnGeometry: 'true',
-    f: 'json'
-  });
-  const url =
-    `https://services8.arcgis.com/gEjMfQjIBmRHMGao/arcgis/rest/services/Red_Vial_Nacional_Proyecto/FeatureServer/0/query?` +
-    params.toString();
-  log('apiCall', { tipo: 'nacional', url });
-  fetch(url)
-    .then((r) => r.json())
-    .then(
-      /** @param {QueryResponse} data */ (data) =>
-        buildKMLFromFeatures(data.features, `Ruta nacional ${ruta}`)
-    )
-    .catch((e) => log('error', { message: e.message }));
+(async function loadCantones(){
+  const url="https://services8.arcgis.com/gEjMfQjIBmRHMGao/arcgis/rest/services/RVC_Version_final/FeatureServer/0/query?"+
+    new URLSearchParams({where:"1=1",outFields:"Canton_1",returnDistinctValues:"true",returnGeometry:"false",f:"json"});
+  try{
+    const j=await fetchWithLogs("cantones:list",url);
+    const sel=document.getElementById("canton");
+    const vals=[...new Set((j.features||[]).map((f)=>(f.attributes||{}).Canton_1))].filter(Boolean).sort();
+    vals.forEach((c)=>{const o=document.createElement("option");o.value=String(c);o.textContent=String(c);sel.appendChild(o)});
+    document.getElementById("btn-cantonal").disabled=false;
+    writeLog({event:"cantones:loaded",total:sel.length,level:"info"});
+  }catch(e){
+    writeLog({event:"cantones:error",message:e instanceof Error?e.message:String(e),level:"error"});
+  }
+})();
+
+document.getElementById("btn-nacional").addEventListener("click",async()=>{
+  const ruta=Number(document.getElementById("route").value);
+  const params=new URLSearchParams({where:`RUTA = ${ruta}`,outFields:"*",returnGeometry:"true",f:"json"});
+  const url=`https://services8.arcgis.com/gEjMfQjIBmRHMGao/arcgis/rest/services/Red_Vial_Nacional_Proyecto/FeatureServer/0/query?${params}`;
+  writeLog({event:"api:call",tipo:"nacional",route:ruta,url,level:"info"});
+  try{
+    const data=await fetchWithLogs("rvn:query",url);
+    const feats=Array.isArray(data.features)?data.features:[];
+    writeLog({event:"rvn:features",count:feats.length,level:feats.length?'info':'warn'});
+    buildKML_RVN_Enriched(feats,`ruta nacional ${ruta}`);
+  }catch(e){}
 });
 
-const btnCant = document.getElementById('btn-cantonal');
-btnCant.addEventListener('click', () => {
-  const canton = /** @type {HTMLSelectElement} */ (document.getElementById('canton')).value;
-  const params = new URLSearchParams({
-    where: `Canton_1='${canton}'`,
-    outFields: '*',
-    returnGeometry: 'true',
-    f: 'json'
-  });
-  const url =
-    `https://services8.arcgis.com/gEjMfQjIBmRHMGao/arcgis/rest/services/RVC_Version_final/FeatureServer/0/query?` +
-    params.toString();
-  log('apiCall', { tipo: 'cantonal', url });
-  fetch(url)
-    .then((r) => r.json())
-    .then(
-      /** @param {QueryResponse} d */ (d) =>
-        buildKMLFromFeatures(d.features, `Rutas cantonales ${canton}`)
-    )
-    .catch((e) => log('error', { message: e.message }));
+document.getElementById("btn-cantonal").addEventListener("click",async()=>{
+  const canton=document.getElementById("canton").value;
+  const params=new URLSearchParams({where:`Canton_1='${canton}'`,outFields:"*",returnGeometry:"true",f:"json"});
+  const url=`https://services8.arcgis.com/gEjMfQjIBmRHMGao/arcgis/rest/services/RVC_Version_final/FeatureServer/0/query?${params}`;
+  writeLog({event:"api:call",tipo:"cantonal",canton,url,level:"info"});
+  try{
+    const d=await fetchWithLogs("rvc:query",url);
+    const feats=Array.isArray(d.features)?d.features:[];
+    writeLog({event:"rvc:features",count:feats.length,level:feats.length?'info':'warn'});
+    buildKML_RVC_Enriched(feats,`rutas cantonales ${String(canton).toLocaleLowerCase()}`);
+  }catch(e){}
 });
 
-/**
- * @param {Feature[]|undefined} feats
- * @param {string} label
- * @returns {void}
- */
-function buildKMLFromFeatures(feats, label) {
-  if (!feats || feats.length === 0) {
-    log('response', { total: 0 });
-    return;
-  }
-  log('response', { total: feats.length });
-  /** @type {PathItem[]} */
-  const items = [];
-  feats.forEach((f, i) => {
-    const a = f.attributes || {};
-    const baseName =
-      /** @type {AttrCantonal} */ (a).Cod_camino_1 ||
-      /** @type {AttrNacional} */ (a).RUTA ||
-      `Feature_${i}`;
-    (f.geometry.paths || []).forEach((path, pi) => {
-      const crtm = collapse(path);
-      if (crtm.length < 2) {
-        log('discardedPath', { i, pi });
-        return;
-      }
-      const wgs = crtm.map(toWGS);
-      const start = crtm[0];
-      const end = crtm[crtm.length - 1];
-      const center = centroid(crtm);
-      const len = lengthCRTM(crtm);
-      items.push({ name: String(baseName), crtm, wgs, start, end, center, len });
-    });
-  });
-
-  if (items.length === 0) {
-    log('noPaths', {});
-    return;
-  }
-
-  const ordered = orderByProximity(items);
-  const kml = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>'
-  ];
-  for (const it of ordered) {
-    kml.push(
-      `<Placemark><name>${it.name}</name><LineString><tessellate>1</tessellate><coordinates>` +
-        it.wgs.map(([lo, la]) => `${lo.toFixed(6)},${la.toFixed(6)},0`).join(' ') +
-        `</coordinates></LineString></Placemark>`
-    );
-  }
-  kml.push('</Document></kml>');
-
-  const blob = new Blob(kml, { type: 'application/vnd.google-earth.kml+xml' });
-  const link = /** @type {HTMLAnchorElement} */ (document.getElementById('download'));
-  link.href = URL.createObjectURL(blob);
-  link.download = `${label}.kml`;
-  link.textContent = `Descargar ${label}.kml`;
-  link.style.display = 'inline-block';
-  log('kmlWrite', { bytes: blob.size, paths: ordered.length });
-}
-
-/**
- * @param {PathItem[]} items
- * @returns {PathItem[]}
- */
-function orderByProximity(items) {
-  const remaining = items.slice().sort((a, b) =>
-    a.center[0] === b.center[0] ? a.center[1] - b.center[1] : a.center[0] - b.center[0]
-  );
-  /** @type {PathItem[]} */
-  const result = [];
-  let current = remaining.shift();
-  if (!current) return result;
+function orderByProximity(items){
+  const remaining=items.slice().sort((a,b)=>a.start[0]===b.start[0]?a.start[1]-b.start[1]:a.start[0]-b.start[0]);
+  const result=[];
+  let current=remaining.shift();
+  if(!current) return result;
   result.push(current);
-  let cursor = current.end;
-
-  while (remaining.length) {
-    let bestIdx = -1;
-    let bestRev = false;
-    let bestD = Infinity;
-    for (let i = 0; i < remaining.length; i++) {
-      const it = remaining[i];
-      const dStart = dist(cursor, it.start);
-      const dEnd = dist(cursor, it.end);
-      if (dStart < bestD) { bestD = dStart; bestIdx = i; bestRev = false; }
-      if (dEnd < bestD) { bestD = dEnd; bestIdx = i; bestRev = true; }
+  let cursor=current.end;
+  while(remaining.length){
+    let bestIdx=-1,bestRev=false,bestD=Infinity;
+    for(let i=0;i<remaining.length;i++){
+      const it=remaining[i];
+      const dStart=dist(cursor,it.start);
+      const dEnd=dist(cursor,it.end);
+      if(dStart<bestD){bestD=dStart;bestIdx=i;bestRev=false}
+      if(dEnd<bestD){bestD=dEnd;bestIdx=i;bestRev=true}
     }
-    const next = /** @type {PathItem} */ (remaining.splice(bestIdx, 1)[0]);
-    if (bestRev) {
-      next.crtm.reverse();
-      next.wgs.reverse();
-      const tmp = next.start;
-      next.start = next.end;
-      next.end = tmp;
+    const next=remaining.splice(bestIdx,1)[0];
+    if(bestRev){
+      next.crtm.reverse();next.wgs.reverse();
+      const tmp=next.start;next.start=next.end;next.end=tmp;
     }
     result.push(next);
-    cursor = next.end;
+    cursor=next.end;
   }
   return result;
 }
+
+function buildKML_RVN_Enriched(feats,label){
+  const t0=performance.now();
+  try{
+    if(!feats||!feats.length){writeLog({event:"rvn:empty",level:"warn"});return}
+    const items=[];const styleIds=new Set();
+    feats.forEach((f,i)=>{
+      const a=f.attributes||{};
+      const mapped=mapAttrsRVN(a);
+      const baseName=mapped.Nombre||`Feature_${i}`;
+      const paths=(f.geometry&&f.geometry.paths)||[];
+      writeLog({event:"rvn:feature",idx:i,paths:paths.length,name:baseName,level:"debug"});
+      paths.forEach((path,pi)=>{
+        const crtm=collapse(path);
+        if(crtm.length<2){writeLog({event:"rvn:discardedPath",i,pi,reason:"degenerate",level:"warn"});return}
+        const wgs=crtm.map(toWGS);
+        const color=colorForJerarquia(mapped.Jerarquia);
+        const width=widthForSection(typeof mapped.Carriles==="number"?mapped.Carriles:Number(mapped.Carriles),typeof mapped.AnchoSup_m==="number"?mapped.AnchoSup_m:Number(mapped.AnchoSup_m));
+        const sid=styleId(color,width);
+        styleIds.add(sid);
+        items.push({name:baseName,crtm,wgs,start:crtm[0],end:crtm[crtm.length-1],len:lengthCRTM(crtm),attrs:mapped,styleId:sid});
+      });
+    });
+    writeLog({event:"rvn:prep",items:items.length,styles:styleIds.size,level:"info"});
+    const ordered=orderByProximity(items);
+    const kml=['<?xml version="1.0" encoding="UTF-8"?>','<kml xmlns="http://www.opengis.net/kml/2.2"><Document>',buildStyleDefs(styleIds)];
+    ordered.forEach((it,idx)=>{
+      if(idx===0||idx===ordered.length-1){
+        writeLog({event:"rvn:segment",idx,name:it.name,len_m:Math.round(it.len),style:it.styleId,start_wgs:it.wgs[0],end_wgs:it.wgs[it.wgs.length-1],level:"debug"});
+      }
+      kml.push(`<Placemark><name>${escapeXml(it.name)}</name><styleUrl>#${it.styleId}</styleUrl><description>${buildDescriptionHTML_RVN(it.attrs)}</description>${toExtendedDataFromMap(it.attrs)}<LineString><tessellate>1</tessellate><coordinates>`+it.wgs.map(([lo,la])=>`${lo.toFixed(6)},${la.toFixed(6)},0`).join(" ")+`</coordinates></LineString></Placemark>`);
+    });
+    kml.push("</Document></kml>");
+    const blob=new Blob(kml,{type:"application/vnd.google-earth.kml+xml"});
+    const link=document.getElementById("download");
+    link.href=URL.createObjectURL(blob);
+    link.download=`${label}.kml`;
+    link.textContent=`Descargar ${label}.kml`;
+    link.style.display="inline-block";
+    const dur=performance.now()-t0;
+    writeLog({event:"kml:write",scope:"rvn",bytes:blob.size,placemarks:ordered.length,styles:styleIds.size,duration_ms:Math.round(dur),level:"info"});
+  }catch(err){
+    writeLog({event:"rvn:error",message:err instanceof Error?err.message:String(err),level:"error"});
+  }
+}
+
+function buildKML_RVC_Enriched(feats,label){
+  const t0=performance.now();
+  try{
+    if(!feats||!feats.length){writeLog({event:"rvc:empty",level:"warn"});return}
+    const items=[];const styleIds=new Set();
+    feats.forEach((f,i)=>{
+      const a=f.attributes||{};
+      const mapped=mapAttrsRVC(a);
+      const baseName=mapped.Nombre||`Feature_${i}`;
+      const paths=(f.geometry&&f.geometry.paths)||[];
+      writeLog({event:"rvc:feature",idx:i,paths:paths.length,name:baseName,level:"debug"});
+      paths.forEach((path,pi)=>{
+        const crtm=collapse(path);
+        if(crtm.length<2){writeLog({event:"rvc:discardedPath",i,pi,reason:"degenerate",level:"warn"});return}
+        const wgs=crtm.map(toWGS);
+        const color=colorForValidado(mapped.Validado);
+        const width=3;
+        const sid=styleId(color,width);
+        styleIds.add(sid);
+        items.push({name:baseName,crtm,wgs,start:crtm[0],end:crtm[crtm.length-1],len:lengthCRTM(crtm),attrs:mapped,styleId:sid});
+      });
+    });
+    writeLog({event:"rvc:prep",items:items.length,styles:styleIds.size,level:"info"});
+    const ordered=orderByProximity(items);
+    const kml=['<?xml version="1.0" encoding="UTF-8"?>','<kml xmlns="http://www.opengis.net/kml/2.2"><Document>',buildStyleDefs(styleIds)];
+    ordered.forEach((it,idx)=>{
+      if(idx===0||idx===ordered.length-1){
+        writeLog({event:"rvc:segment",idx,name:it.name,len_m:Math.round(it.len),style:it.styleId,start_wgs:it.wgs[0],end_wgs:it.wgs[it.wgs.length-1],level:"debug"});
+      }
+      kml.push(`<Placemark><name>${escapeXml(it.name)}</name><styleUrl>#${it.styleId}</styleUrl><description>${buildDescriptionHTML_RVC(it.attrs)}</description>${toExtendedDataFromMap(it.attrs)}<LineString><tessellate>1</tessellate><coordinates>`+it.wgs.map(([lo,la])=>`${lo.toFixed(6)},${la.toFixed(6)},0`).join(" ")+`</coordinates></LineString></Placemark>`);
+    });
+    kml.push("</Document></kml>");
+    const blob=new Blob(kml,{type:"application/vnd.google-earth.kml+xml"});
+    const link=document.getElementById("download");
+    link.href=URL.createObjectURL(blob);
+    link.download=`${label}.kml`;
+    link.textContent=`Descargar ${label}.kml`;
+    link.style.display="inline-block";
+    const dur=performance.now()-t0;
+    writeLog({event:"kml:write",scope:"rvc",bytes:blob.size,placemarks:ordered.length,styles:styleIds.size,duration_ms:Math.round(dur),level:"info"});
+  }catch(err){
+    writeLog({event:"rvc:error",message:err instanceof Error?err.message:String(err),level:"error"});
+  }
+}
+
+writeLog({event:"app:ready",userAgent:navigator.userAgent,heap:performance&&performance.memory?performance.memory.usedJSHeapSize:undefined,level:"info"});
 </script>
 </body>
 </html>
